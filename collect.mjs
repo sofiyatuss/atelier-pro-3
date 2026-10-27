@@ -370,11 +370,105 @@ async function fetchBarca(f = fetch, now = Date.now()) {
     upcoming,
     recent,
     squad: parseRoster(roster),
+    squadSource: "ESPN",
+    squadFetchedAt: new Date(now).toISOString(),
     standings: COMPETITIONS.map((c) => standings.find((s) => s.compSlug === c.slug)).filter((s) => !!s),
     errors
   };
 }
 var hasBarcaData = (d) => !!d && d.upcoming.length + d.recent.length + d.squad.length > 0;
+
+// src/barca/transfermarkt.ts
+var TM_API = "https://tmapi.transfermarkt.technology";
+var BARCA_TM_ID = "131";
+var SITE = "https://www.transfermarkt.com";
+var TmBlocked = class extends Error {
+};
+async function tmGet(f, path) {
+  const r = await f(`${TM_API}${path}`, { headers: { Accept: "application/json", "User-Agent": "TheAtelier/1.0 (personal study app)" } });
+  if (r.headers.get("x-amzn-waf-action") || r.status === 202 || r.status === 403 || r.status === 429) throw new TmBlocked(`Transfermarkt refused the request (${r.status})`);
+  if (r.status === 404) return null;
+  if (!r.ok) throw new Error(`Transfermarkt ${path}: HTTP ${r.status}`);
+  const body = await r.json();
+  if (!body || body.success !== true || !("data" in body)) throw new Error(`Transfermarkt ${path}: unexpected reply`);
+  return body.data;
+}
+var POSITION = { GOALKEEPER: "Goalkeeper", DEFENDER: "Defender", MIDFIELDER: "Midfielder", FORWARD: "Forward" };
+function money(m) {
+  const c = m?.compact;
+  if (!m?.value || !c) return null;
+  return `${c.prefix ?? ""}${c.content ?? ""}${c.suffix ?? ""}`.trim() || null;
+}
+function current(list, today) {
+  return (list ?? []).filter((x) => x?.start && x.start <= today && (!x.end || x.end >= today)).sort((a, b) => (b.start ?? "").localeCompare(a.start ?? ""))[0] ?? null;
+}
+function toPlayer(member, player, injuries, absences, countries, today, suspensionIds) {
+  const a = player?.attributes ?? {};
+  const nat = player?.nationalityDetails?.nationalities ?? {};
+  const inj = current(injuries, today);
+  const abs = current(absences, today);
+  const out = inj ?? abs;
+  const kind = inj ? "Injured" : abs ? suspensionIds.has(Number(abs.absenceId)) || /suspen|ban|card/i.test(abs.name ?? "") ? "Suspended" : "Unavailable" : null;
+  return {
+    id: String(member.playerId),
+    name: player?.name || player?.shortName || `Player ${member.playerId}`,
+    number: member.shirtNumber != null ? String(member.shirtNumber) : null,
+    position: POSITION[a.positionGroup] ?? (a.position?.category === "Goalkeeper" ? "Goalkeeper" : a.position?.category === "Defender" ? "Defender" : a.position?.category === "Midfielder" ? "Midfielder" : a.position?.category === "Striker" ? "Forward" : "Other"),
+    positionDetail: a.position?.name ?? null,
+    age: typeof player?.lifeDates?.age === "number" ? player.lifeDates.age : null,
+    nationality: [countries.get(nat.nationalityId), nat.secondNationalityId ? countries.get(nat.secondNationalityId) : null].filter(Boolean).join(" / ") || null,
+    marketValue: money(player?.marketValueDetails?.current),
+    contractUntil: a.contractUntil ?? null,
+    profileUrl: player?.relativeUrl ? `${SITE}${player.relativeUrl}` : null,
+    isCaptain: !!member.isCaptain,
+    injury: out && kind ? { status: kind, detail: out.name ?? null, date: out.start ?? null, returnDate: out.end ?? null, missedGames: typeof out.missedGamesCount === "number" ? out.missedGamesCount : null } : null
+  };
+}
+async function pool(items2, n, fn) {
+  const out = new Array(items2.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items2.length) }, async () => {
+    while (i < items2.length) {
+      const k = i++;
+      out[k] = await fn(items2[k]);
+    }
+  }));
+  return out;
+}
+async function fetchTransfermarktSquad(f = fetch, today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)) {
+  const errors = [];
+  const squadData = await tmGet(f, `/club/${BARCA_TM_ID}/squad`);
+  const members = (squadData?.squad ?? []).filter((m) => m?.playerId && (m.type ?? "current") === "current");
+  if (!members.length) throw new Error("Transfermarkt returned an empty squad");
+  const ids = members.map((m) => String(m.playerId));
+  const players = /* @__PURE__ */ new Map();
+  for (let i = 0; i < ids.length; i += 50) {
+    const qs = ids.slice(i, i + 50).map((id) => `ids[]=${encodeURIComponent(id)}`).join("&");
+    for (const p of await tmGet(f, `/players?${qs}`) ?? []) players.set(String(p.id), p);
+  }
+  const countries = /* @__PURE__ */ new Map();
+  const suspensionIds = /* @__PURE__ */ new Set();
+  try {
+    const att = await tmGet(f, "/attributes");
+    for (const c of att?.countries ?? []) countries.set(Number(c.id), c.name);
+    for (const a of att?.absences ?? []) if (a.isSuspension) suspensionIds.add(Number(a.id));
+  } catch (e) {
+    errors.push(`Transfermarkt countries: ${e.message}`);
+  }
+  const health = await pool(ids, 4, async (id) => {
+    const [inj, abs] = await Promise.all([
+      tmGet(f, `/player/${id}/injury`).catch((e) => {
+        errors.push(`injuries for ${players.get(id)?.name ?? id}: ${e.message}`);
+        return null;
+      }),
+      tmGet(f, `/player/${id}/absence`).catch(() => null)
+    ]);
+    return { injuries: inj?.injuries ?? null, absences: abs?.absences ?? null };
+  });
+  const order = ["Goalkeeper", "Defender", "Midfielder", "Forward", "Other"];
+  const squad = members.map((m, k) => toPlayer(m, players.get(ids[k]), health[k].injuries, health[k].absences, countries, today, suspensionIds)).sort((x, y) => order.indexOf(x.position) - order.indexOf(y.position) || Number(x.number ?? 99) - Number(y.number ?? 99));
+  return { squad, errors };
+}
 
 // scripts/recommend.ts
 var OUT = process.argv[2] || "recommendations.json";
@@ -491,12 +585,26 @@ try {
 } catch (e) {
   console.log(`barca failed: ${e.message}`);
 }
-if (!hasBarcaData(barca)) {
+var previousBarca = null;
+try {
+  previousBarca = JSON.parse(await readFile(OUT, "utf8")).barca ?? null;
+} catch {
+}
+if (!hasBarcaData(barca)) barca = previousBarca ?? barca;
+if (barca) {
   try {
-    barca = JSON.parse(await readFile(OUT, "utf8")).barca ?? barca;
-  } catch {
+    const tm = await fetchTransfermarktSquad(fetch);
+    barca = { ...barca, squad: tm.squad, squadSource: "Transfermarkt", squadFetchedAt: (/* @__PURE__ */ new Date()).toISOString(), errors: [...barca.errors, ...tm.errors.slice(0, 3)] };
+    console.log(`transfermarkt: ${tm.squad.length} players, ${tm.squad.filter((p) => p.injury).length} unavailable${tm.errors.length ? ` · ${tm.errors.length} lookups failed` : ""}`);
+  } catch (e) {
+    console.log(`transfermarkt failed: ${e.message}`);
+    const prev = previousBarca;
+    if (prev?.squadSource === "Transfermarkt" && prev.squadFetchedAt && Date.now() - Date.parse(prev.squadFetchedAt) < 7 * 864e5) {
+      barca = { ...barca, squad: prev.squad, squadSource: "Transfermarkt", squadFetchedAt: prev.squadFetchedAt };
+    }
+    barca = { ...barca, errors: [...barca.errors, `Transfermarkt: ${e.message}`] };
   }
 }
-var pool = { format: "atelier-recommendations", version: 4, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), sources: status, items, horoscopes: horo, barca };
-await writeFile(OUT, JSON.stringify(pool, null, 0) + "\n");
+var pool2 = { format: "atelier-recommendations", version: 4, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), sources: status, items, horoscopes: horo, barca };
+await writeFile(OUT, JSON.stringify(pool2, null, 0) + "\n");
 console.log(`Wrote ${items.length} items (${fresh.length} fetched this run) to ${OUT}`);
