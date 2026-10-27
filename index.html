@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>The Atelier</title>
+  <meta name="description" content="A private workspace for study, research, notes and ideas." />
+  <meta name="theme-color" content="#F4EEE2" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#24201C" media="(prefers-color-scheme: dark)" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Atelier" />
+  <meta name="referrer" content="no-referrer" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="stylesheet" href="app.css" />
+  <script>
+    // Apply the saved theme before first paint to avoid a flash.
+    try { var t = localStorage.getItem('atelier-theme'); if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+</head>
+<body>
+  <div id="root">
+    <div class="boot"><div class="boot-mark">The Atelier</div><div class="boot-sub">Opening your workspace…</div></div>
+  </div>
+  <noscript>The Atelier needs JavaScript to run.</noscript>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
