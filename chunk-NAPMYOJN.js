@@ -1,0 +1,33 @@
+var c=".github/workflows/recommendations.yml";function l(){return`# The Atelier \u2014 recommendations, news and horoscopes (workflow v3).
+# Runs collect.mjs, which is part of the app's files, so updating the app also updates the collector.
+# It only reads public feeds and pages; your notes never leave your device.
+name: Collect recommendations
+
+on:
+  schedule:
+    - cron: '41 */4 * * *'   # every 4 hours
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Collect
+        run: |
+          if [ ! -f collect.mjs ]; then echo "::error::collect.mjs is missing. Upload the latest app files to this repository."; exit 1; fi
+          node collect.mjs recommendations.json rec-sources.json
+      - name: Save
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add recommendations.json
+          git diff --cached --quiet || (git commit -m "Update recommendations" && git push)
+`}function a(t){return JSON.stringify({sources:t.filter(e=>e.enabled).map(({id:e,name:s,kind:n,url:i,categories:r,include:o})=>({id:e,name:s,kind:n,url:i,categories:r,...o?.length?{include:o}:{}}))},null,2)+`
+`}export{c as a,l as b,a as c};

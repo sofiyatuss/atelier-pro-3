@@ -1,0 +1,1 @@
+var e=["captured","exploring","researching","prototyping","active","completed","archived"],t=["philosophy","literature","psychology","essays","video-essays"],n=["world","politics","economics","football"];export{e as a,t as b,n as c};
