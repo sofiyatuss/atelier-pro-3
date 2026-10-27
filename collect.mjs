@@ -200,6 +200,182 @@ function parseHoroscopeCom(html, url) {
   return text.length >= 80 ? { text: decodeEntities(text), url, date } : null;
 }
 
+// src/barca/espn.ts
+var BARCA_ESPN_ID = "83";
+var API = "https://site.api.espn.com/apis/site/v2/sports/soccer";
+var API_V2 = "https://site.api.espn.com/apis/v2/sports/soccer";
+var COMPETITIONS = [
+  { slug: "esp.1", name: "LaLiga", table: true },
+  { slug: "uefa.champions", name: "Champions League", table: true },
+  { slug: "esp.copa_del_rey", name: "Copa del Rey", table: false },
+  { slug: "esp.super_cup", name: "Supercopa de España", table: false }
+];
+var num = (v) => {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : null;
+};
+var str = (v) => typeof v === "string" && v.trim() ? v.trim() : null;
+function isBarca(team) {
+  return String(team?.id ?? "") === BARCA_ESPN_ID || /^(fc )?barcelona$/i.test(str(team?.displayName) ?? str(team?.name) ?? "");
+}
+function scoreOf(c) {
+  const s = c?.score;
+  if (s == null) return null;
+  if (typeof s === "object") return num(s.value) ?? num(s.displayValue);
+  return num(s);
+}
+function parseSchedule(json, comp) {
+  const out = [];
+  for (const e of Array.isArray(json?.events) ? json.events : []) {
+    const c = e?.competitions?.[0];
+    const teams = Array.isArray(c?.competitors) ? c.competitors : [];
+    const home = teams.find((t) => t?.homeAway === "home") ?? teams[0];
+    const away = teams.find((t) => t?.homeAway === "away") ?? teams[1];
+    if (!home || !away) continue;
+    const barcaHome = isBarca(home.team);
+    if (!barcaHome && !isBarca(away.team)) continue;
+    const date = str(e?.date) ?? str(c?.date);
+    if (!date || Number.isNaN(Date.parse(date))) continue;
+    const opp = barcaHome ? away : home;
+    const type = c?.status?.type ?? e?.status?.type ?? {};
+    const state = type.state === "in" || type.state === "post" ? type.state : "pre";
+    const stage = str(c?.notes?.[0]?.headline) ?? str(e?.seasonType?.name) ?? null;
+    out.push({
+      id: String(e.id ?? `${comp.slug}-${date}`),
+      date: new Date(date).toISOString(),
+      timeValid: e?.timeValid !== false && c?.timeValid !== false,
+      compSlug: comp.slug,
+      competition: comp.name,
+      stage: stage && !/regular season|league phase|^season$/i.test(stage) ? stage : null,
+      home: str(home.team?.displayName) ?? str(home.team?.name) ?? "Home",
+      away: str(away.team?.displayName) ?? str(away.team?.name) ?? "Away",
+      barcaHome,
+      opponent: str(opp.team?.displayName) ?? str(opp.team?.name) ?? "Opponent",
+      opponentLogo: str(opp.team?.logos?.[0]?.href) ?? str(opp.team?.logo),
+      venue: str(c?.venue?.fullName),
+      state,
+      status: str(type.shortDetail) ?? str(type.detail) ?? str(type.description),
+      scoreHome: state === "pre" ? null : scoreOf(home),
+      scoreAway: state === "pre" ? null : scoreOf(away)
+    });
+  }
+  return out;
+}
+var POS = { G: "Goalkeeper", GK: "Goalkeeper", D: "Defender", DF: "Defender", M: "Midfielder", MF: "Midfielder", F: "Forward", FW: "Forward" };
+function parseRoster(json) {
+  let athletes = Array.isArray(json?.athletes) ? json.athletes : [];
+  if (athletes.length && Array.isArray(athletes[0]?.items)) athletes = athletes.flatMap((g) => g.items ?? []);
+  const out = [];
+  for (const a of athletes) {
+    const name = str(a?.displayName) ?? str(a?.fullName);
+    if (!name) continue;
+    const abbr = str(a?.position?.abbreviation)?.toUpperCase() ?? "";
+    const pname = str(a?.position?.displayName) ?? str(a?.position?.name) ?? "";
+    const position = POS[abbr] ?? (/goal/i.test(pname) ? "Goalkeeper" : /defen|back/i.test(pname) ? "Defender" : /mid/i.test(pname) ? "Midfielder" : /forw|strik|wing|attack/i.test(pname) ? "Forward" : "Other");
+    const inj = Array.isArray(a?.injuries) ? a.injuries.find((i) => i && !/^active$/i.test(String(i.status ?? ""))) : null;
+    out.push({
+      id: String(a.id ?? name),
+      name,
+      number: str(a?.jersey) ?? (num(a?.jersey) != null ? String(a.jersey) : null),
+      position,
+      age: num(a?.age),
+      nationality: str(a?.citizenship) ?? str(a?.flag?.alt) ?? str(a?.birthPlace?.country),
+      injury: inj ? {
+        status: str(inj.status) ?? str(inj.type?.description) ?? "Injured",
+        detail: str(inj.details?.type) ?? str(inj.details?.detail) ?? str(inj.shortComment) ?? str(inj.longComment) ?? str(inj.type?.abbreviation),
+        date: str(inj.date),
+        returnDate: str(inj.details?.returnDate)
+      } : null
+    });
+  }
+  const order = ["Goalkeeper", "Defender", "Midfielder", "Forward", "Other"];
+  return out.sort((x, y) => order.indexOf(x.position) - order.indexOf(y.position) || Number(x.number ?? 99) - Number(y.number ?? 99) || x.name.localeCompare(y.name));
+}
+function entriesIn(json) {
+  const groups = [];
+  const walk = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node?.standings?.entries)) groups.push(node.standings.entries);
+    for (const k of ["children", "groups"]) if (Array.isArray(node[k])) node[k].forEach(walk);
+  };
+  walk(json);
+  return groups;
+}
+function stat(entry, ...names) {
+  for (const s of Array.isArray(entry?.stats) ? entry.stats : []) if (names.includes(s?.name) || names.includes(s?.type)) {
+    const v = num(s.value) ?? num(s.displayValue);
+    if (v != null) return v;
+  }
+  return null;
+}
+function parseStandings(json, comp) {
+  for (const entries of entriesIn(json)) {
+    const mine = entries.find((e) => isBarca(e?.team));
+    if (!mine) continue;
+    const ranked = entries.map((e, i) => ({ e, rank: stat(e, "rank") ?? i + 1 })).sort((a, b) => a.rank - b.rank);
+    const me = ranked.find((x) => x.e === mine);
+    const top = ranked[0];
+    return {
+      compSlug: comp.slug,
+      competition: comp.name,
+      rank: me.rank,
+      of: entries.length,
+      played: stat(mine, "gamesPlayed"),
+      points: stat(mine, "points"),
+      won: stat(mine, "wins"),
+      drawn: stat(mine, "ties", "draws"),
+      lost: stat(mine, "losses"),
+      goalDiff: stat(mine, "pointDifferential", "goalDifference"),
+      leader: top && top.e !== mine ? str(top.e?.team?.displayName) ?? str(top.e?.team?.name) : null,
+      leaderPoints: top && top.e !== mine ? stat(top.e, "points") : null
+    };
+  }
+  return null;
+}
+async function fetchBarca(f = fetch, now = Date.now()) {
+  const errors = [];
+  const get2 = async (url, label) => {
+    try {
+      const r = await f(url, { headers: { Accept: "application/json" } });
+      if (!r.ok) {
+        errors.push(`${label}: HTTP ${r.status}`);
+        return null;
+      }
+      return await r.json();
+    } catch (e) {
+      errors.push(`${label}: ${e.message}`);
+      return null;
+    }
+  };
+  const matches = /* @__PURE__ */ new Map();
+  const standings = [];
+  await Promise.all(COMPETITIONS.map(async (c) => {
+    const [fixtures, results] = await Promise.all([
+      get2(`${API}/${c.slug}/teams/${BARCA_ESPN_ID}/schedule?fixture=true`, `${c.name} fixtures`),
+      get2(`${API}/${c.slug}/teams/${BARCA_ESPN_ID}/schedule`, `${c.name} results`)
+    ]);
+    for (const m of [...parseSchedule(results, c), ...parseSchedule(fixtures, c)]) matches.set(m.id, m);
+    if (c.table) {
+      const s = parseStandings(await get2(`${API_V2}/${c.slug}/standings`, `${c.name} table`), c);
+      if (s) standings.push(s);
+    }
+  }));
+  const roster = await get2(`${API}/esp.1/teams/${BARCA_ESPN_ID}/roster`, "Squad");
+  const all = Array.from(matches.values());
+  const upcoming = all.filter((m) => m.state !== "post" && Date.parse(m.date) > now - 3 * 36e5).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 12);
+  const recent = all.filter((m) => m.state === "post").sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
+  return {
+    fetchedAt: new Date(now).toISOString(),
+    source: "ESPN",
+    upcoming,
+    recent,
+    squad: parseRoster(roster),
+    standings: COMPETITIONS.map((c) => standings.find((s) => s.compSlug === c.slug)).filter((s) => !!s),
+    errors
+  };
+}
+var hasBarcaData = (d) => !!d && d.upcoming.length + d.recent.length + d.squad.length > 0;
+
 // scripts/recommend.ts
 var OUT = process.argv[2] || "recommendations.json";
 var SOURCES_FILE = process.argv[3] || "rec-sources.json";
@@ -308,6 +484,19 @@ if (!horo) {
   } catch {
   }
 }
-var pool = { format: "atelier-recommendations", version: 3, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), sources: status, items, horoscopes: horo };
+var barca = null;
+try {
+  barca = await fetchBarca(fetch);
+  console.log(`barca: ${barca.upcoming.length} upcoming, ${barca.recent.length} results, ${barca.squad.length} players, ${barca.standings.length} tables${barca.errors.length ? ` · ${barca.errors.length} feeds failed: ${barca.errors.join("; ")}` : ""}`);
+} catch (e) {
+  console.log(`barca failed: ${e.message}`);
+}
+if (!hasBarcaData(barca)) {
+  try {
+    barca = JSON.parse(await readFile(OUT, "utf8")).barca ?? barca;
+  } catch {
+  }
+}
+var pool = { format: "atelier-recommendations", version: 4, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), sources: status, items, horoscopes: horo, barca };
 await writeFile(OUT, JSON.stringify(pool, null, 0) + "\n");
 console.log(`Wrote ${items.length} items (${fresh.length} fetched this run) to ${OUT}`);
