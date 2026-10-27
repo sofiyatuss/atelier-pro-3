@@ -1,0 +1,206 @@
+# The Atelier — daily recommendations. Collects new essays and videos from your sources
+# and saves them to recommendations.json in this repository. Your notes never leave your device.
+name: Collect recommendations
+
+on:
+  schedule:
+    - cron: '41 4 * * *'   # every day, 04:41 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Collect
+        run: |
+          cat > /tmp/collect.mjs <<'ATELIER_SCRIPT'
+          // scripts/recommend.ts
+          import { readFile, writeFile } from "node:fs/promises";
+
+          // src/recs/feeds.ts
+          var ENT = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", hellip: "…", mdash: "—", ndash: "–", rsquo: "’", lsquo: "‘", rdquo: "”", ldquo: "“" };
+          function decodeEntities(s) {
+            return s.replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d))).replace(/&(\w+);/g, (all, n) => ENT[n] ?? all);
+          }
+          function unwrap(s) {
+            const cdata = s.match(/^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/);
+            return cdata ? cdata[1] : s;
+          }
+          function textFrom(html, max = 420) {
+            if (!html) return null;
+            let t = decodeEntities(unwrap(html));
+            t = decodeEntities(t.replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+            t = t.replace(/\s*(The post .* appeared first on .*|Continue reading.*|Read more.*)$/i, "").trim();
+            if (!t) return null;
+            if (t.length <= max) return t;
+            const cut = t.slice(0, max);
+            return cut.slice(0, Math.max(cut.lastIndexOf(" "), max - 40)).trimEnd() + "…";
+          }
+          function tag(xml, name) {
+            const re = new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`, "i");
+            const m = xml.match(re);
+            return m ? unwrap(m[1]).trim() : null;
+          }
+          function attr(xml, name, a) {
+            const re = new RegExp(`<${name}\\b[^>]*\\b${a}="([^"]+)"`, "i");
+            return xml.match(re)?.[1] ?? null;
+          }
+          function iso(d) {
+            if (!d) return null;
+            const t = Date.parse(d.trim());
+            return Number.isNaN(t) ? null : new Date(t).toISOString();
+          }
+          function firstImage(html) {
+            if (!html) return null;
+            const m = decodeEntities(unwrap(html)).match(/<img[^>]+src="(https:[^"]+)"/i);
+            return m ? m[1] : null;
+          }
+          function parseFeed(xml) {
+            const isAtom = /<feed\b/i.test(xml) && !/<rss\b/i.test(xml);
+            const blocks = isAtom ? xml.match(/<entry\b[\s\S]*?<\/entry>/gi) ?? [] : xml.match(/<item\b[\s\S]*?<\/item>/gi) ?? [];
+            const out = [];
+            for (const b of blocks) {
+              const title = textFrom(tag(b, "title"), 300) ?? "";
+              let url;
+              if (isAtom) url = b.match(/<link\b[^>]*rel="alternate"[^>]*href="([^"]+)"/i)?.[1] ?? attr(b, "link", "href");
+              else url = tag(b, "link") ?? (tag(b, "guid")?.startsWith("http") ? tag(b, "guid") : null);
+              if (!url || !title) continue;
+              url = decodeEntities(url.trim());
+              const videoId = tag(b, "yt:videoId");
+              const desc = tag(b, "media:description") ?? tag(b, "description") ?? tag(b, "summary") ?? tag(b, "content");
+              const thumb = attr(b, "media:thumbnail", "url") ?? attr(b, "media:content", "url") ?? attr(b, "enclosure", "url") ?? firstImage(tag(b, "content:encoded") ?? desc);
+              const author = textFrom(tag(b, "dc:creator") ?? tag(tag(b, "author") ?? "", "name") ?? tag(b, "author"), 120);
+              out.push({
+                url,
+                title,
+                author: author || null,
+                publishedAt: iso(tag(b, "pubDate") ?? tag(b, "published") ?? tag(b, "updated") ?? tag(b, "dc:date")),
+                summary: textFrom(desc),
+                thumbnail: thumb && /^https:/.test(thumb) ? decodeEntities(thumb) : videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : null,
+                kind: videoId || /youtube\.com\/watch|youtu\.be\//.test(url) ? "video" : "article"
+              });
+            }
+            return out;
+          }
+          function isShort(item) {
+            return /\/shorts\//.test(item.url) || /#shorts?\b/i.test(`${item.title} ${item.summary ?? ""}`);
+          }
+          function youtubeId(url) {
+            return url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/)?.[1] ?? null;
+          }
+          function channelIdFromHtml(html) {
+            return html.match(/"(?:channelId|externalId)":"(UC[\w-]{22})"/)?.[1] ?? html.match(/<link rel="canonical" href="https:\/\/www\.youtube\.com\/channel\/(UC[\w-]{22})"/)?.[1] ?? null;
+          }
+          function normalizeUrl(u) {
+            try {
+              const x = new URL(u);
+              const yt2 = youtubeId(u);
+              if (yt2) return `https://www.youtube.com/watch?v=${yt2}`;
+              for (const k of Array.from(x.searchParams.keys())) if (/^(utm_|ref$|fbclid|gclid|mc_)/.test(k)) x.searchParams.delete(k);
+              x.hash = "";
+              return x.toString().replace(/\/$/, "");
+            } catch {
+              return u.trim();
+            }
+          }
+
+          // src/recs/sources.ts
+          function sourceId(kind, url) {
+            const key = url.trim().toLowerCase().replace(/^https?:\/\/(www\.)?/, "").replace(/^youtube\.com\//, "").replace(/[^a-z0-9@]+/g, "-").replace(/^-+|-+$/g, "");
+            return `${kind}-${key}`.slice(0, 80);
+          }
+          var rss = (name, url, categories) => ({ id: sourceId("rss", url), name, kind: "rss", url, categories, enabled: true });
+          var yt = (name, handle, categories) => ({ id: sourceId("youtube", handle), name, kind: "youtube", url: handle, categories: ["video-essays", ...categories], enabled: true });
+          var DEFAULT_REC_SOURCES = [
+            rss("Aeon", "https://aeon.co/feed.rss", ["philosophy", "psychology", "essays"]),
+            rss("Psyche", "https://psyche.co/feed", ["psychology", "philosophy", "essays"]),
+            rss("The Marginalian", "https://www.themarginalian.org/feed/", ["literature", "philosophy", "essays"]),
+            rss("Noema", "https://www.noemamag.com/feed/", ["philosophy", "essays"]),
+            rss("The Point", "https://thepointmag.com/feed/", ["philosophy", "literature", "essays"]),
+            rss("1000-Word Philosophy", "https://1000wordphilosophy.com/feed/", ["philosophy"]),
+            rss("Literary Hub", "https://lithub.com/feed/", ["literature"]),
+            rss("The Paris Review", "https://www.theparisreview.org/blog/feed/", ["literature"]),
+            rss("The Public Domain Review", "https://publicdomainreview.org/rss.xml", ["literature", "essays"]),
+            rss("Nautilus", "https://nautil.us/feed/", ["psychology", "essays"]),
+            rss("3 Quarks Daily", "https://3quarksdaily.com/feed", ["essays", "philosophy"]),
+            yt("Philosophy Tube", "@PhilosophyTube", ["philosophy"]),
+            yt("Like Stories of Old", "@LikeStoriesofOld", ["philosophy", "literature"]),
+            yt("Academy of Ideas", "@academyofideas", ["philosophy", "psychology"]),
+            yt("Pursuit of Wonder", "@PursuitofWonder", ["philosophy", "psychology"]),
+            yt("Einzelgänger", "@Einzelgaenger", ["philosophy"]),
+            yt("The Living Philosophy", "@TheLivingPhilosophy", ["philosophy"]),
+            yt("Jonas Čeika – CCK Philosophy", "@JonasCeika", ["philosophy"]),
+            yt("The School of Life", "@theschooloflifetv", ["psychology", "philosophy"]),
+            yt("Wisecrack", "@wisecrack", ["philosophy", "literature"])
+          ];
+
+          // scripts/recommend.ts
+          var OUT = process.argv[2] || "recommendations.json";
+          var SOURCES_FILE = process.argv[3] || "rec-sources.json";
+          var MAX_AGE_DAYS = 30;
+          var PER_SOURCE = 12;
+          var UA = { "User-Agent": "Mozilla/5.0 (compatible; TheAtelierRecommendations/1.0; personal reading list)", Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html;q=0.8" };
+          async function get(url) {
+            const res = await fetch(url, { headers: UA, redirect: "follow", signal: AbortSignal.timeout(2e4) });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.text();
+          }
+          async function youtubeFeedUrl(handle) {
+            if (/^UC[\w-]{22}$/.test(handle)) return `https://www.youtube.com/feeds/videos.xml?channel_id=${handle}`;
+            const page = handle.startsWith("http") ? handle : `https://www.youtube.com/${handle.startsWith("@") ? handle : "@" + handle}`;
+            const id = channelIdFromHtml(await get(page));
+            if (!id) throw new Error("could not find the channel id for this handle");
+            return `https://www.youtube.com/feeds/videos.xml?channel_id=${id}`;
+          }
+          var sources;
+          try {
+            const raw = JSON.parse(await readFile(SOURCES_FILE, "utf8"));
+            sources = (raw.sources ?? raw).filter((s) => s && s.url && s.enabled !== false);
+            console.log(`Using ${sources.length} sources from ${SOURCES_FILE}`);
+          } catch {
+            sources = DEFAULT_REC_SOURCES;
+            console.log(`No ${SOURCES_FILE}; using the ${sources.length} default sources`);
+          }
+          var previous = [];
+          try {
+            previous = JSON.parse(await readFile(OUT, "utf8")).items ?? [];
+          } catch {
+          }
+          var cutoff = Date.now() - MAX_AGE_DAYS * 864e5;
+          var status = [];
+          var fresh = [];
+          for (const s of sources) {
+            try {
+              const feedUrl = s.kind === "youtube" ? await youtubeFeedUrl(s.url) : s.url;
+              const items2 = parseFeed(await get(feedUrl)).filter((i) => !isShort(i)).filter((i) => !i.publishedAt || Date.parse(i.publishedAt) >= cutoff).slice(0, PER_SOURCE);
+              for (const i of items2) fresh.push({ ...i, url: normalizeUrl(i.url), sourceId: s.id, sourceName: s.name, categories: s.categories });
+              status.push({ id: s.id, name: s.name, count: items2.length });
+              console.log(`✓ ${s.name}: ${items2.length}`);
+            } catch (e) {
+              status.push({ id: s.id, name: s.name, count: 0, error: e.message });
+              console.log(`✗ ${s.name}: ${e.message}`);
+            }
+            await new Promise((r) => setTimeout(r, 300));
+          }
+          var byUrl = /* @__PURE__ */ new Map();
+          for (const i of [...fresh, ...previous]) if (!byUrl.has(i.url)) byUrl.set(i.url, i);
+          var items = Array.from(byUrl.values()).filter((i) => !i.publishedAt || Date.parse(i.publishedAt) >= cutoff).sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? "")).slice(0, 800);
+          var pool = { format: "atelier-recommendations", generatedAt: (/* @__PURE__ */ new Date()).toISOString(), sources: status, items };
+          await writeFile(OUT, JSON.stringify(pool, null, 0) + "\n");
+          console.log(`Wrote ${items.length} items (${fresh.length} fetched this run) to ${OUT}`);
+
+          ATELIER_SCRIPT
+          node /tmp/collect.mjs recommendations.json rec-sources.json
+      - name: Save
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add recommendations.json
+          git diff --cached --quiet || (git commit -m "Update recommendations" && git push)
