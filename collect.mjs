@@ -470,6 +470,74 @@ async function fetchTransfermarktSquad(f = fetch, today = (/* @__PURE__ */ new D
   return { squad, errors };
 }
 
+// src/markets/yahoo.ts
+var MARKETS = [
+  { symbol: "^GSPC", name: "S&P 500", short: "S&P 500", kind: "index" },
+  { symbol: "^IXIC", name: "Nasdaq Composite", short: "Nasdaq", kind: "index" },
+  { symbol: "^DJI", name: "Dow Jones", short: "Dow", kind: "index" },
+  { symbol: "^STOXX50E", name: "Euro Stoxx 50", short: "Stoxx 50", kind: "index" },
+  { symbol: "^GDAXI", name: "DAX", short: "DAX", kind: "index" },
+  { symbol: "^ATX", name: "ATX (Vienna)", short: "ATX", kind: "index" },
+  { symbol: "^FTSE", name: "FTSE 100", short: "FTSE", kind: "index" },
+  { symbol: "^N225", name: "Nikkei 225", short: "Nikkei", kind: "index" },
+  { symbol: "GC=F", name: "Gold", short: "Gold", kind: "commodity" },
+  { symbol: "BZ=F", name: "Brent crude", short: "Oil", kind: "commodity" },
+  { symbol: "EURUSD=X", name: "Euro in dollars", short: "EUR/USD", kind: "fx" },
+  { symbol: "BTC-USD", name: "Bitcoin", short: "Bitcoin", kind: "crypto" }
+];
+function parseChart(json, def) {
+  const r = json?.chart?.result?.[0];
+  const meta = r?.meta;
+  const ts = Array.isArray(r?.timestamp) ? r.timestamp : [];
+  const raw = Array.isArray(r?.indicators?.quote?.[0]?.close) ? r.indicators.quote[0].close : [];
+  const bars = ts.map((t, i) => ({ t, c: raw[i] })).filter((b) => typeof b.c === "number" && Number.isFinite(b.c));
+  const price = typeof meta?.regularMarketPrice === "number" ? meta.regularMarketPrice : bars.at(-1)?.c;
+  if (price == null || bars.length < 2) return null;
+  const tLast = typeof meta?.regularMarketTime === "number" ? meta.regularMarketTime : bars.at(-1).t;
+  const sameDay = (a, b) => new Date(a * 1e3).toISOString().slice(0, 10) === new Date(b * 1e3).toISOString().slice(0, 10);
+  const lastBarIsLatest = sameDay(bars.at(-1).t, tLast);
+  const prev = lastBarIsLatest ? bars.at(-2).c : bars.at(-1).c;
+  if (!prev) return null;
+  const change = price - prev;
+  const closes = lastBarIsLatest ? bars.map((b) => b.c) : [...bars.map((b) => b.c), price];
+  return {
+    symbol: def.symbol,
+    name: def.name,
+    short: def.short,
+    kind: def.kind,
+    price,
+    prevClose: prev,
+    change,
+    changePct: change / prev * 100,
+    currency: typeof meta?.currency === "string" ? meta.currency : null,
+    time: new Date(tLast * 1e3).toISOString(),
+    closes: closes.slice(-7)
+  };
+}
+async function fetchMarkets(f = fetch, now = Date.now()) {
+  const errors = [];
+  const quotes = [];
+  for (const def of MARKETS) {
+    let got = null;
+    for (const host of ["query1", "query2"]) {
+      try {
+        const r = await f(`https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(def.symbol)}?range=7d&interval=1d`, { headers: { "User-Agent": "Mozilla/5.0 (compatible; TheAtelier/1.0)", Accept: "application/json" } });
+        if (!r.ok) {
+          if (host === "query2") errors.push(`${def.short}: HTTP ${r.status}`);
+          continue;
+        }
+        got = parseChart(await r.json(), def);
+        if (got) break;
+      } catch (e) {
+        if (host === "query2") errors.push(`${def.short}: ${e.message}`);
+      }
+    }
+    if (got) quotes.push(got);
+    await new Promise((res) => setTimeout(res, 150));
+  }
+  return { fetchedAt: new Date(now).toISOString(), source: "Yahoo Finance", quotes, errors };
+}
+
 // scripts/recommend.ts
 var OUT = process.argv[2] || "recommendations.json";
 var SOURCES_FILE = process.argv[3] || "rec-sources.json";
@@ -605,6 +673,19 @@ if (barca) {
     barca = { ...barca, errors: [...barca.errors, `Transfermarkt: ${e.message}`] };
   }
 }
-var pool2 = { format: "atelier-recommendations", version: 4, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), sources: status, items, horoscopes: horo, barca };
+var markets = null;
+try {
+  markets = await fetchMarkets(fetch);
+  console.log(`markets: ${markets.quotes.length} quotes${markets.errors.length ? ` · failed: ${markets.errors.join("; ")}` : ""}`);
+  if (!markets.quotes.length) {
+    try {
+      markets = JSON.parse(await readFile(OUT, "utf8")).markets ?? markets;
+    } catch {
+    }
+  }
+} catch (e) {
+  console.log(`markets failed: ${e.message}`);
+}
+var pool2 = { format: "atelier-recommendations", version: 5, markets, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), sources: status, items, horoscopes: horo, barca };
 await writeFile(OUT, JSON.stringify(pool2, null, 0) + "\n");
 console.log(`Wrote ${items.length} items (${fresh.length} fetched this run) to ${OUT}`);
