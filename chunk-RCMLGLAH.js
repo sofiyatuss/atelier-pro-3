@@ -1,0 +1,1 @@
+import{a,b,c,d}from"./chunk-33C5GS3Z.js";import"./chunk-V5SXFBWH.js";import"./chunk-3HJYAHI2.js";import"./chunk-MI52ITC6.js";import"./chunk-NCOK5KES.js";import"./chunk-LYFAN6U2.js";export{a as MAIL_KINDS,b as MAIL_PRESETS,d as MailWidget,c as default};

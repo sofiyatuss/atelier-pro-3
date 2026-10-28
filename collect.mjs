@@ -552,6 +552,33 @@ async function fetchMarkets(f = fetch, now = Date.now()) {
   return { fetchedAt: new Date(now).toISOString(), source: "Yahoo Finance", quotes, errors };
 }
 
+// src/transit/wl.ts
+var WL_STOPS_CSV = "https://www.wienerlinien.at/ogd_realtime/doku/ogd/wienerlinien-ogd-haltepunkte.csv";
+function parseStopsCsv(csv) {
+  const lines = csv.replace(/^﻿/, "").split(/\r?\n/).filter((l) => l.trim());
+  if (!lines.length) return [];
+  const split = (l) => l.split(";").map((c) => c.trim().replace(/^"(.*)"$/, "$1"));
+  const head = split(lines[0]).map((h) => h.toLowerCase());
+  const col = (name) => head.indexOf(name.toLowerCase());
+  const iId = col("StopID"), iText = col("StopText"), iMun = col("Municipality"), iLon = col("Longitude"), iLat = col("Latitude");
+  if (iId < 0 || iText < 0) throw new Error("Unexpected stops file format");
+  const by = /* @__PURE__ */ new Map();
+  for (const l of lines.slice(1)) {
+    const c = split(l);
+    const id = Number(c[iId]);
+    const name = c[iText];
+    if (!Number.isFinite(id) || !name) continue;
+    if (iMun >= 0 && c[iMun] && !/^wien$/i.test(c[iMun])) continue;
+    const g = by.get(name) ?? by.set(name, { ids: /* @__PURE__ */ new Set(), lat: [], lon: [] }).get(name);
+    g.ids.add(id);
+    const lat = Number((c[iLat] ?? "").replace(",", ".")), lon = Number((c[iLon] ?? "").replace(",", "."));
+    if (Number.isFinite(lat) && lat) g.lat.push(lat);
+    if (Number.isFinite(lon) && lon) g.lon.push(lon);
+  }
+  const avg = (a) => a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length * 1e5) / 1e5 : null;
+  return [...by.entries()].map(([name, g]) => [name, [...g.ids].sort((a, b) => a - b), avg(g.lat), avg(g.lon)]).sort((a, b) => a[0].localeCompare(b[0], "de"));
+}
+
 // scripts/recommend.ts
 var OUT = process.argv[2] || "recommendations.json";
 var SOURCES_FILE = process.argv[3] || "rec-sources.json";
@@ -701,6 +728,23 @@ try {
 } catch (e) {
   console.log(`markets failed: ${e.message}`);
 }
-var pool2 = { format: "atelier-recommendations", version: 5, markets, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), sources: status, items, horoscopes: horo, barca };
+var wlStops = null;
+try {
+  wlStops = JSON.parse(await readFile(OUT, "utf8")).wlStops ?? null;
+} catch {
+}
+if (!wlStops || Date.now() - Date.parse(wlStops.fetchedAt) > 7 * 864e5) {
+  try {
+    const r = await fetch(WL_STOPS_CSV, { headers: { "User-Agent": UA["User-Agent"] } });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const stations = parseStopsCsv(await r.text());
+    if (stations.length < 100) throw new Error(`only ${stations.length} stations`);
+    wlStops = { fetchedAt: (/* @__PURE__ */ new Date()).toISOString(), stations };
+    console.log(`wiener linien stops: ${stations.length} stations`);
+  } catch (e) {
+    console.log(`wiener linien stops failed: ${e.message}${wlStops ? " (keeping the previous list)" : ""}`);
+  }
+}
+var pool2 = { format: "atelier-recommendations", version: 6, markets, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), sources: status, items, horoscopes: horo, barca, wlStops };
 await writeFile(OUT, JSON.stringify(pool2, null, 0) + "\n");
 console.log(`Wrote ${items.length} items (${fresh.length} fetched this run) to ${OUT}`);

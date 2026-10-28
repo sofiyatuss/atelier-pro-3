@@ -1,0 +1,1 @@
+import{a,b}from"./chunk-LI65FU2X.js";import"./chunk-7UI6DFRE.js";import"./chunk-4K4B2HIV.js";import"./chunk-I24RUE5V.js";import"./chunk-GND4CHLD.js";import"./chunk-AXQWF7BN.js";import"./chunk-V5SXFBWH.js";import"./chunk-3HJYAHI2.js";import"./chunk-MI52ITC6.js";import"./chunk-NCOK5KES.js";import"./chunk-LYFAN6U2.js";export{b as MealsWidget,a as default};
