@@ -135,11 +135,25 @@ var DEFAULT_NEWS_SOURCES = [
   feed("DW — Top stories", "https://rss.dw.com/rdf/rss-en-top", "world"),
   feed("DW — Business", "https://rss.dw.com/rdf/rss-en-bus", "economics"),
   feed("The Guardian — Barcelona", "https://www.theguardian.com/football/barcelona/rss", "football"),
-  feed("BBC Sport — European football", "https://feeds.bbci.co.uk/sport/football/european/rss.xml", "football", BARCA_WORDS)
+  feed("BBC Sport — European football", "https://feeds.bbci.co.uk/sport/football/european/rss.xml", "football", BARCA_WORDS),
+  ...COUNTRY_NEWS_SOURCES()
 ];
+function COUNTRY_NEWS_SOURCES() {
+  return [
+    feed("ORF — News (German)", "https://rss.orf.at/news.xml", "austria"),
+    feed("Der Standard (German)", "https://www.derstandard.at/rss", "austria"),
+    feed("The Local Austria", "https://feeds.thelocal.com/rss/at", "austria"),
+    feed("The Guardian — Austria", "https://www.theguardian.com/world/austria/rss", "austria"),
+    feed("RFE/RL — Kazakhstan", "https://www.rferl.org/api/zriiml-vomx-tpeogm_", "kazakhstan"),
+    feed("The Times of Central Asia", "https://timesca.com/feed/", "kazakhstan", ["Kazakhstan", "Kazakh", "Astana", "Almaty", "Tokayev"]),
+    feed("The Guardian — Kazakhstan", "https://www.theguardian.com/world/kazakhstan/rss", "kazakhstan"),
+    feed("The Astana Times (government-aligned)", "https://astanatimes.com/feed/", "kazakhstan")
+  ];
+}
 
 // src/domain/types.ts
-var NEWS_SECTIONS = ["world", "politics", "economics", "football"];
+var NEWS_SECTIONS = ["world", "politics", "economics", "football", "austria", "kazakhstan"];
+var COUNTRY_SECTIONS = ["austria", "kazakhstan"];
 
 // src/sky/moon.ts
 var RAD = Math.PI / 180;
@@ -546,6 +560,8 @@ var PER_SOURCE = 12;
 var NEWS_MAX_AGE_DAYS = 3;
 var NEWS_PER_SOURCE = 30;
 var isNews = (s) => s.categories.some((c) => NEWS_SECTIONS.includes(c));
+var isCountryNews = (s) => s.categories.some((c) => COUNTRY_SECTIONS.includes(c));
+var newsAgeDays = (s) => isCountryNews(s) ? 7 : NEWS_MAX_AGE_DAYS;
 var UA = { "User-Agent": "Mozilla/5.0 (compatible; TheAtelierRecommendations/1.0; personal reading list)", Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html;q=0.8" };
 async function get(url) {
   const res = await fetch(url, { headers: UA, redirect: "follow", signal: AbortSignal.timeout(2e4) });
@@ -580,7 +596,7 @@ for (const s of sources) {
   try {
     const feedUrl = s.kind === "youtube" ? await youtubeFeedUrl(s.url) : s.url;
     const news = isNews(s);
-    const since = news ? Date.now() - NEWS_MAX_AGE_DAYS * 864e5 : cutoff;
+    const since = news ? Date.now() - newsAgeDays(s) * 864e5 : cutoff;
     const include = (s.include ?? []).map((w) => w.toLowerCase());
     const items2 = parseFeed(await get(feedUrl)).map((i, rank) => ({ ...i, rank })).filter((i) => !isShort(i)).filter((i) => !include.length || include.some((w) => `${i.title} ${i.summary ?? ""}`.toLowerCase().includes(w))).filter((i) => !i.publishedAt || Date.parse(i.publishedAt) >= since).slice(0, news ? NEWS_PER_SOURCE : PER_SOURCE);
     for (const i of items2) fresh.push({ ...i, url: normalizeUrl(i.url), sourceId: s.id, sourceName: s.name, categories: s.categories });
@@ -595,8 +611,7 @@ for (const s of sources) {
 var byUrl = /* @__PURE__ */ new Map();
 for (const i of fresh) if (!byUrl.has(i.url)) byUrl.set(i.url, i);
 for (const i of previous) if (!byUrl.has(i.url)) byUrl.set(i.url, isNews(i) ? { ...i, rank: 50 } : i);
-var newsCutoff = Date.now() - NEWS_MAX_AGE_DAYS * 864e5;
-var items = Array.from(byUrl.values()).filter((i) => !i.publishedAt || Date.parse(i.publishedAt) >= (isNews(i) ? newsCutoff : cutoff)).sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? "")).slice(0, 1500);
+var items = Array.from(byUrl.values()).filter((i) => !i.publishedAt || Date.parse(i.publishedAt) >= (isNews(i) ? Date.now() - newsAgeDays(i) * 864e5 : cutoff)).sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? "")).slice(0, 1500);
 async function horoscopes() {
   const set = { source: "The AstroTwins", sourceUrl: "https://astrostyle.com", postUrl: null, postDate: null, fetchedAt: (/* @__PURE__ */ new Date()).toISOString(), intro: null, signs: {} };
   const candidates = [];
