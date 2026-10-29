@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>The Atelier</title>
+  <meta name="description" content="A private workspace for study, research, notes and ideas." />
+  <meta name="theme-color" content="#F4EEE2" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#24201C" media="(prefers-color-scheme: dark)" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Atelier" />
+  <meta name="referrer" content="no-referrer" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="stylesheet" href="app.css" />
+  <script>
+    // Apply the saved theme before first paint to avoid a flash.
+    try { var t = localStorage.getItem('atelier-theme'); if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
+</head>
+<body>
+  <div id="root">
+    <div class="boot"><div class="boot-mark">The Atelier</div><div class="boot-sub">Opening your workspace…</div></div>
+  </div>
+  <noscript>The Atelier needs JavaScript to run.</noscript>
+  <script>
+    // If the app can't start (e.g. a file is missing after an upload), say so instead of showing a blank page.
+    (function () {
+      var shown = false;
+      function show(msg) {
+        if (shown || window.__atelierStarted) return; shown = true;
+        var r = document.getElementById('root');
+        if (!r) return;
+        r.innerHTML = '<div class="boot" style="max-width:560px;margin:0 auto;padding:32px 20px;font-family:system-ui,sans-serif;color:#2b2420;background:#f4eee2;min-height:100vh;box-sizing:border-box">' +
+          '<div style="font:600 1.4rem Georgia,serif;margin-bottom:10px">The Atelier couldn\u2019t start</div>' +
+          '<p style="line-height:1.5">' + msg + '</p>' +
+          '<p style="line-height:1.5">If you just uploaded a new version: make sure <b>every</b> file from the zip is in the repository (GitHub\u2019s website takes at most 100 files per upload), wait a minute for GitHub Pages to finish, then reload. Your notes are safe \u2014 they\u2019re stored on this device, not in these files.</p>' +
+          '<button onclick="location.reload()" style="font:inherit;padding:8px 16px;border-radius:8px;border:1px solid #8a3a3a;background:#8a3a3a;color:#fff">Reload</button></div>';
+      }
+      window.__atelierBootFail = show;
+      window.addEventListener('error', function (e) {
+        var t = e.target;
+        if (t && t.tagName === 'SCRIPT') show('A file the app needs (' + (t.getAttribute('src') || 'script') + ') couldn\u2019t be loaded.');
+      }, true);
+      setTimeout(function () { show('The app files didn\u2019t load within 20 seconds.'); }, 20000);
+    })();
+  </script>
+  <script type="module" src="app.js" onerror="window.__atelierBootFail && window.__atelierBootFail('app.js is missing or couldn\u2019t be loaded.')"></script>
+</body>
+</html>
