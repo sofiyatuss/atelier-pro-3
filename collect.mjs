@@ -5,7 +5,7 @@ import { readFile, writeFile } from "node:fs/promises";
 // src/recs/feeds.ts
 var ENT = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", hellip: "…", mdash: "—", ndash: "–", rsquo: "’", lsquo: "‘", rdquo: "”", ldquo: "“" };
 function decodeEntities(s) {
-  return s.replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d))).replace(/&(\w+);/g, (all, n) => ENT[n] ?? all);
+  return s.replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d))).replace(/&(\w+);/g, (all2, n) => ENT[n] ?? all2);
 }
 function unwrap(s) {
   const cdata = s.match(/^\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*$/);
@@ -91,8 +91,8 @@ function normalizeUrl(u) {
 
 // src/recs/sources.ts
 function sourceId(kind, url) {
-  const key = url.trim().toLowerCase().replace(/^https?:\/\/(www\.)?/, "").replace(/^youtube\.com\//, "").replace(/[^a-z0-9@]+/g, "-").replace(/^-+|-+$/g, "");
-  return `${kind}-${key}`.slice(0, 80);
+  const key2 = url.trim().toLowerCase().replace(/^https?:\/\/(www\.)?/, "").replace(/^youtube\.com\//, "").replace(/[^a-z0-9@]+/g, "-").replace(/^-+|-+$/g, "");
+  return `${kind}-${key2}`.slice(0, 80);
 }
 var rss = (name, url, categories) => ({ id: sourceId("rss", url), name, kind: "rss", url, categories, enabled: true });
 var yt = (name, handle, categories) => ({ id: sourceId("youtube", handle), name, kind: "youtube", url: handle, categories: ["video-essays", ...categories], enabled: true });
@@ -189,8 +189,8 @@ function parseAstrostyle(html, url) {
     const stop = Math.min(heads[i + 1]?.start ?? clean.length, nextHead?.start ?? clean.length);
     const block = clean.slice(h.end, stop);
     const paras = Array.from(block.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)).map((x) => textFrom(x[1], 2e3) ?? "").filter((t) => t.length > 40 && !/^read .* (daily )?horoscope/i.test(t));
-    const text = paras.join("\n\n");
-    if (text.length >= 80) signs[h.sign] = { text, url, date: h.date };
+    const text2 = paras.join("\n\n");
+    if (text2.length >= 80) signs[h.sign] = { text: text2, url, date: h.date };
   });
   let intro = null;
   const ih = allHeads.find((h) => /astrology today|in the stars/i.test(h.text));
@@ -210,8 +210,8 @@ function parseHoroscopeCom(html, url) {
   const p = box.match(/<p[^>]*>([\s\S]*?)<\/p>/i)?.[1];
   if (!p) return null;
   const date = textFrom(p.match(/<strong[^>]*>([\s\S]*?)<\/strong>/i)?.[1] ?? "", 40);
-  const text = (textFrom(p.replace(/<strong[^>]*>[\s\S]*?<\/strong>/i, ""), 2e3) ?? "").replace(/^\s*[-–—]\s*/, "");
-  return text.length >= 80 ? { text: decodeEntities(text), url, date } : null;
+  const text2 = (textFrom(p.replace(/<strong[^>]*>[\s\S]*?<\/strong>/i, ""), 2e3) ?? "").replace(/^\s*[-–—]\s*/, "");
+  return text2.length >= 80 ? { text: decodeEntities(text2), url, date } : null;
 }
 
 // src/barca/espn.ts
@@ -238,9 +238,9 @@ function scoreOf(c) {
   if (typeof s === "object") return num(s.value) ?? num(s.displayValue);
   return num(s);
 }
-function parseSchedule(json, comp) {
+function parseSchedule(json2, comp) {
   const out = [];
-  for (const e of Array.isArray(json?.events) ? json.events : []) {
+  for (const e of Array.isArray(json2?.events) ? json2.events : []) {
     const c = e?.competitions?.[0];
     const teams = Array.isArray(c?.competitors) ? c.competitors : [];
     const home = teams.find((t) => t?.homeAway === "home") ?? teams[0];
@@ -276,8 +276,8 @@ function parseSchedule(json, comp) {
   return out;
 }
 var POS = { G: "Goalkeeper", GK: "Goalkeeper", D: "Defender", DF: "Defender", M: "Midfielder", MF: "Midfielder", F: "Forward", FW: "Forward" };
-function parseRoster(json) {
-  let athletes = Array.isArray(json?.athletes) ? json.athletes : [];
+function parseRoster(json2) {
+  let athletes = Array.isArray(json2?.athletes) ? json2.athletes : [];
   if (athletes.length && Array.isArray(athletes[0]?.items)) athletes = athletes.flatMap((g) => g.items ?? []);
   const out = [];
   for (const a of athletes) {
@@ -305,14 +305,14 @@ function parseRoster(json) {
   const order = ["Goalkeeper", "Defender", "Midfielder", "Forward", "Other"];
   return out.sort((x, y) => order.indexOf(x.position) - order.indexOf(y.position) || Number(x.number ?? 99) - Number(y.number ?? 99) || x.name.localeCompare(y.name));
 }
-function entriesIn(json) {
+function entriesIn(json2) {
   const groups = [];
   const walk = (node) => {
     if (!node || typeof node !== "object") return;
     if (Array.isArray(node?.standings?.entries)) groups.push(node.standings.entries);
     for (const k of ["children", "groups"]) if (Array.isArray(node[k])) node[k].forEach(walk);
   };
-  walk(json);
+  walk(json2);
   return groups;
 }
 function stat(entry, ...names) {
@@ -322,8 +322,8 @@ function stat(entry, ...names) {
   }
   return null;
 }
-function parseStandings(json, comp) {
-  for (const entries of entriesIn(json)) {
+function parseStandings(json2, comp) {
+  for (const entries of entriesIn(json2)) {
     const mine = entries.find((e) => isBarca(e?.team));
     if (!mine) continue;
     const ranked = entries.map((e, i) => ({ e, rank: stat(e, "rank") ?? i + 1 })).sort((a, b) => a.rank - b.rank);
@@ -375,9 +375,9 @@ async function fetchBarca(f = fetch, now = Date.now()) {
     }
   }));
   const roster = await get2(`${API}/esp.1/teams/${BARCA_ESPN_ID}/roster`, "Squad");
-  const all = Array.from(matches.values());
-  const upcoming = all.filter((m) => m.state !== "post" && Date.parse(m.date) > now - 3 * 36e5).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 12);
-  const recent = all.filter((m) => m.state === "post").sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
+  const all2 = Array.from(matches.values());
+  const upcoming = all2.filter((m) => m.state !== "post" && Date.parse(m.date) > now - 3 * 36e5).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 12);
+  const recent = all2.filter((m) => m.state === "post").sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
   return {
     fetchedAt: new Date(now).toISOString(),
     source: "ESPN",
@@ -499,8 +499,8 @@ var MARKETS = [
   { symbol: "EURUSD=X", name: "Euro in dollars", short: "EUR/USD", kind: "fx" },
   { symbol: "BTC-USD", name: "Bitcoin", short: "Bitcoin", kind: "crypto" }
 ];
-function parseChart(json, def) {
-  const r = json?.chart?.result?.[0];
+function parseChart(json2, def) {
+  const r = json2?.chart?.result?.[0];
   const meta = r?.meta;
   const ts = Array.isArray(r?.timestamp) ? r.timestamp : [];
   const raw = Array.isArray(r?.indicators?.quote?.[0]?.close) ? r.indicators.quote[0].close : [];
@@ -577,6 +577,421 @@ function parseStopsCsv(csv) {
   }
   const avg = (a) => a.length ? Math.round(a.reduce((x, y) => x + y, 0) / a.length * 1e5) / 1e5 : null;
   return [...by.entries()].map(([name, g]) => [name, [...g.ids].sort((a, b) => a - b), avg(g.lat), avg(g.lon)]).sort((a, b) => a[0].localeCompare(b[0], "de"));
+}
+
+// src/lib/util.ts
+function normalizeDoi(doi) {
+  if (!doi) return null;
+  const m = doi.trim().match(/10\.\d{4,9}\/\S+/i);
+  return m ? m[0].replace(/[.,;]+$/, "").toLowerCase() : null;
+}
+
+// src/research/clients.ts
+var ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+function decode(s) {
+  return s.replace(/<[^>]+>/g, "").replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d))).replace(/&(\w+);/g, (all2, n) => ENTITIES[n] ?? all2).replace(/<\/?(?:i|b|u|em|strong|sup|sub|sc)>/gi, "").replace(/\s+/g, " ").trim();
+}
+var first = (xml, re) => {
+  const m = xml.match(re);
+  return m ? decode(m[1]) : null;
+};
+var all = (xml, re) => Array.from(xml.matchAll(re), (m) => m);
+function parsePubmedXml(xml) {
+  return all(xml, /<PubmedArticle>([\s\S]*?)<\/PubmedArticle>/g).map(([, a]) => {
+    const pmid = first(a, /<PMID[^>]*>(\d+)<\/PMID>/);
+    const title = first(a, /<ArticleTitle[^>]*>([\s\S]*?)<\/ArticleTitle>/) ?? "(untitled)";
+    const abstractParts = all(a, /<AbstractText([^>]*)>([\s\S]*?)<\/AbstractText>/g).map((m) => {
+      const label = m[1].match(/Label="([^"]+)"/)?.[1];
+      const text2 = decode(m[2]);
+      return label ? `${label[0]}${label.slice(1).toLowerCase()}: ${text2}` : text2;
+    });
+    const authors = all(a, /<Author\b[^>]*>([\s\S]*?)<\/Author>/g).map(([, au]) => {
+      const last = first(au, /<LastName>([\s\S]*?)<\/LastName>/);
+      const fore = first(au, /<ForeName>([\s\S]*?)<\/ForeName>/) ?? first(au, /<Initials>([\s\S]*?)<\/Initials>/);
+      const coll = first(au, /<CollectiveName>([\s\S]*?)<\/CollectiveName>/);
+      return coll ?? [fore, last].filter(Boolean).join(" ");
+    }).filter(Boolean);
+    const journal = first(a, /<Journal>[\s\S]*?<Title>([\s\S]*?)<\/Title>/);
+    const yearS = first(a, /<PubDate>[\s\S]*?<Year>(\d{4})<\/Year>/) ?? first(a, /<PubDate>[\s\S]*?<MedlineDate>(\d{4})/) ?? first(a, /<ArticleDate[^>]*>[\s\S]*?<Year>(\d{4})<\/Year>/);
+    const doi = normalizeDoi(first(a, /<ArticleId IdType="doi">([\s\S]*?)<\/ArticleId>/) ?? first(a, /<ELocationID EIdType="doi"[^>]*>([\s\S]*?)<\/ELocationID>/));
+    const pmc = first(a, /<ArticleId IdType="pmc">([\s\S]*?)<\/ArticleId>/);
+    const keywords = [
+      ...all(a, /<Keyword[^>]*>([\s\S]*?)<\/Keyword>/g).map((m) => decode(m[1])),
+      ...all(a, /<DescriptorName[^>]*>([\s\S]*?)<\/DescriptorName>/g).map((m) => decode(m[1]))
+    ];
+    return {
+      title,
+      authors,
+      year: yearS ? Number(yearS) : null,
+      journal,
+      doi,
+      pmid,
+      openalexId: null,
+      abstract: abstractParts.join("\n\n") || null,
+      keywords: Array.from(new Set(keywords)).slice(0, 15),
+      url: pmid ? `https://pubmed.ncbi.nlm.nih.gov/${pmid}/` : null,
+      openAccess: pmc ? true : null,
+      pdfUrl: pmc ? `https://pmc.ncbi.nlm.nih.gov/articles/${pmc}/` : null,
+      citedBy: null,
+      source: "pubmed"
+    };
+  });
+}
+
+// src/bulletin/core.ts
+var EVIDENCE = {
+  strong: { label: "Trial or meta-analysis", caution: "Strongest kind of evidence — still check who took part." },
+  observational: { label: "Observational / early", caution: "A link, not proof of cause." },
+  animal: { label: "Animal or cell study", caution: "In animals or cells — may not carry over to people." },
+  preprint: { label: "Preprint · not peer-reviewed", caution: "Not yet checked by other scientists." },
+  news: { label: "News & policy", caution: "" }
+};
+var ANIMAL = /\b(mice|mouse|murine|rats?|rodents?|zebrafish|drosophila|fruit fl(?:y|ies)|c\. elegans|primates?|macaques?|monkeys?|marmosets?|in vitro|cell cultures?|cultured (?:neurons|cells)|organoids?|ipscs?|ipsc-derived|stem cells?|lab-grown|grown in (?:a|the) lab|lab dish|petri dish|pigs?|sheep)\b/i;
+var HUMAN = /\b(patients?|participants?|humans?|adults?|children|adolescents?|people|individuals|volunteers|women|men|veterans|students|twins|infants)\b/i;
+var OBS = /\b(cohort|cross-sectional|case-control|observational|longitudinal|registry|population-based|survey|associated with|association between|linked to|mendelian randomi[sz]ation)\b/i;
+var RCT = /\b(randomi[sz]ed (?:controlled |clinical )?trial|randomi[sz]ed,? (?:double|single)-blind|placebo-controlled)\b/i;
+var META = /\b(meta-analys[ie]s|systematic review)\b/i;
+function classify(c) {
+  const t = `${c.title} ${c.text}`;
+  const types = (c.pubTypes ?? []).map((x) => x.toLowerCase());
+  const titleAnimal = ANIMAL.test(c.title);
+  const animal = titleAnimal || ANIMAL.test(t) && !HUMAN.test(t);
+  let studyType = "Study";
+  let evidence = "observational";
+  if (types.includes("meta-analysis") || META.test(c.title) && !animal) {
+    evidence = "strong";
+    studyType = types.includes("meta-analysis") || /meta-analys/i.test(c.title) ? "Meta-analysis" : "Systematic review";
+  } else if (types.includes("systematic review")) {
+    evidence = "strong";
+    studyType = "Systematic review";
+  } else if (types.includes("randomized controlled trial") || RCT.test(t) && !animal) {
+    evidence = "strong";
+    studyType = "Randomised trial";
+  } else if (animal) {
+    evidence = "animal";
+    studyType = /in vitro|cell|organoid|ipsc|stem cell|lab-grown/i.test(t) && !/\b(mice|mouse|rats?|zebrafish|monkeys?|macaques?)\b/i.test(t) ? "Cell study" : "Animal study";
+  } else if (types.includes("clinical trial")) {
+    evidence = "observational";
+    studyType = "Early clinical trial";
+  } else if (OBS.test(t)) {
+    evidence = "observational";
+    studyType = "Observational study";
+  } else if (types.some((x) => x === "review")) {
+    evidence = "observational";
+    studyType = "Review";
+  }
+  if (c.kind === "preprint") return { evidence: "preprint", studyType: studyType === "Study" ? "Preprint" : `${studyType} (preprint)` };
+  if (c.kind === "news") {
+    if (evidence === "strong" || evidence === "animal") return { evidence, studyType: `${studyType} (reported)` };
+    return { evidence: "news", studyType: "Science news" };
+  }
+  return { evidence, studyType };
+}
+function categorize(c) {
+  if (c.hint) return c.hint;
+  const t = `${c.title} ${c.text}`.toLowerCase();
+  if (/\b(policy|government|minister|legislation|law|funding cut|nih budget|nhs england|guideline|national plan|regulator|fda approv|ema approv)\b/.test(t)) return "policy";
+  if (/\b(patients?|clinical|treatment|therapy|drug|trial|diagnos|dementia|alzheimer|parkinson|stroke|epilepsy|schizophren|bipolar|autism|adhd|multiple sclerosis|migraine)\b/.test(t)) return "clinical";
+  if (/psycholog|behavio|emotion|social|personality|wellbeing|well-being|loneliness|motivation|decision|memory bias|attitude|stereotyp|happiness|stress\b/.test(t + " " + c.source.toLowerCase()) && !/\b(neurons?|synap|cortex|hippocamp|dopamine|fmri|eeg|brain)\b/.test(t)) return "psych";
+  return "neuro";
+}
+function peopleIn(text2) {
+  const m = text2.match(/\b(\d{1,3}(?:[,\s]\d{3})+|\d{2,7})\s+(?:participants|patients|adults|people|children|individuals|adolescents|women|men|veterans|twins|volunteers|students|older adults)\b/i);
+  if (!m) return null;
+  const n = Number(m[1].replace(/[,\s]/g, ""));
+  return n >= 10 ? n : null;
+}
+var TOP_JOURNALS = /^(nature|science|cell|neuron|nature neuroscience|nature human behaviour|nature medicine|nature mental health|the lancet.*|lancet.*|new england journal of medicine|n engl j med|jama.*|bmj|brain|pnas|proceedings of the national academy of sciences.*|psychological science|american journal of psychiatry|molecular psychiatry|biological psychiatry|elife|current biology|nature communications|science advances|alzheimer's & dementia|annals of neurology|neurology|trends in .*|nature reviews .*|psychological bulletin|journal of neuroscience)$/i;
+function score(c, cls = classify(c)) {
+  let s = 0;
+  if (TOP_JOURNALS.test(c.source.trim())) s += 5;
+  if (cls.evidence === "strong") s += 3;
+  if (cls.evidence === "animal") s -= 1;
+  if (c.kind === "preprint") s -= 1;
+  if (c.kind === "news") s += 2;
+  if (c.text.length > 200) s += 1;
+  const n = peopleIn(c.text);
+  if (n && n >= 1e3) s += 1;
+  return s;
+}
+var key = (title) => title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 70);
+function dedupe(list) {
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const c of list) {
+    const ks = [c.doi ? `doi:${c.doi.toLowerCase()}` : "", c.pmid ? `pmid:${c.pmid}` : "", `t:${key(c.title)}`].filter(Boolean);
+    if (ks.some((k) => seen.has(k))) continue;
+    ks.forEach((k) => seen.add(k));
+    out.push(c);
+  }
+  return out;
+}
+function firstSentences(text2, max = 320) {
+  const clean = text2.replace(/^(background|introduction|objectives?|aims?|purpose)\s*:\s*/i, "").replace(/\s+/g, " ").trim();
+  const parts = clean.match(/[^.!?]+[.!?]+(\s|$)/g) ?? [clean];
+  let out = "";
+  for (const p of parts) {
+    if ((out + p).length > max && out) break;
+    out += p;
+  }
+  return (out || clean).trim().slice(0, max + 40);
+}
+var numbers = (s) => (s.match(/\d+(?:[.,]\d+)*/g) ?? []).map((n) => n.replace(/,/g, ""));
+function numbersOk(aiText, source) {
+  const have = new Set(numbers(source));
+  return numbers(aiText).every((n) => have.has(n) || have.has(n.replace(/\.0+$/, "")));
+}
+function toItem(c, ai) {
+  const cls = classify(c);
+  const src = `${c.title} ${c.text}`;
+  const okHead = ai?.headline && ai.headline.length <= 140 && numbersOk(ai.headline, src) ? ai.headline.trim() : null;
+  const okSum = ai?.summary && numbersOk(ai.summary, src) ? ai.summary.trim() : null;
+  const okWhy = ai?.why && numbersOk(ai.why, src) ? ai.why.trim() : void 0;
+  const aiCat = ai?.category && ["neuro", "psych", "clinical", "policy"].includes(ai.category) ? ai.category : null;
+  return {
+    id: c.id,
+    kind: c.kind,
+    title: okHead ?? c.title,
+    originalTitle: c.title,
+    summary: okSum ?? firstSentences(c.text || c.title),
+    why: okWhy,
+    evidence: cls.evidence,
+    studyType: cls.studyType,
+    caution: EVIDENCE[cls.evidence].caution,
+    category: aiCat ?? categorize(c),
+    source: c.source,
+    url: c.url,
+    doi: c.doi ?? null,
+    pmid: c.pmid ?? null,
+    authors: c.authors?.slice(0, 8),
+    year: c.year ?? null,
+    publishedAt: c.publishedAt ?? null,
+    abstract: c.text ? c.text.slice(0, 2500) : null,
+    people: peopleIn(c.text),
+    ai: !!(okHead || okSum)
+  };
+}
+function fallbackQuestion(top) {
+  if (!top) return "What makes a psychology finding trustworthy? Name three things you’d check.";
+  const about = `About “${top.title}”: `;
+  switch (top.evidence) {
+    case "observational":
+      return `${about}this shows a link. What else could explain it, and how would you test whether it’s a cause?`;
+    case "animal":
+      return `${about}what would need to be true for this result to apply to people — and how would you find out?`;
+    case "strong":
+      return `${about}who took part, and who might this result not apply to?`;
+    case "preprint":
+      return `${about}it hasn’t been peer-reviewed yet. What would you check before believing it?`;
+    default:
+      return `${about}who is affected, and what evidence would show whether it works?`;
+  }
+}
+var readMinutes = (items2) => Math.max(1, Math.round(items2.reduce((n, i) => n + (i.title + " " + i.summary + " " + (i.why ?? "")).split(/\s+/).length, 0) / 200));
+function assemble(date, candidates, ai, prevWeek = [], limit = 10, generatedAt = (/* @__PURE__ */ new Date()).toISOString(), sources2 = []) {
+  const byId = new Map(candidates.map((c) => [c.id, c]));
+  let items2;
+  if (ai?.picks?.length) {
+    const used = /* @__PURE__ */ new Set();
+    items2 = ai.picks.filter((p) => byId.has(p.id) && !used.has(p.id) && used.add(p.id)).slice(0, limit).map((p) => toItem(byId.get(p.id), p));
+  } else {
+    items2 = candidates.map((c) => ({ c, s: score(c) })).sort((a, b) => b.s - a.s).slice(0, limit).map(({ c }) => toItem(c));
+    items2 = balance(items2, limit);
+  }
+  const qOk = ai?.question?.text && ai.question.text.length < 400 ? ai.question : null;
+  const question = qOk ? { text: qOk.text.trim(), itemId: qOk.id && items2.some((i) => i.id === qOk.id) ? qOk.id : null } : { text: fallbackQuestion(items2[0]), itemId: items2[0]?.id ?? null };
+  const today = items2.slice(0, 3).map((i) => ({ date, id: i.id, title: i.title, url: i.url, evidence: i.evidence, category: i.category }));
+  const week = [...today, ...prevWeek.filter((w) => w.date !== date)].filter((w) => daysApart(w.date, date) < 7).slice(0, 21);
+  return { date, generatedAt, items: items2, question, readMinutes: readMinutes(items2), ai: items2.some((i) => i.ai), week, sources: sources2 };
+}
+function balance(items2, limit) {
+  const out = [];
+  const rest = [];
+  const count = {};
+  for (const i of items2) {
+    if ((count[i.category] ?? 0) < 4) {
+      out.push(i);
+      count[i.category] = (count[i.category] ?? 0) + 1;
+    } else rest.push(i);
+  }
+  return [...out, ...rest].slice(0, limit);
+}
+function daysApart(a, b) {
+  return Math.abs(Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 864e5));
+}
+function viennaNow(d = /* @__PURE__ */ new Date()) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Vienna", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hour12: false }).formatToParts(d).map((p) => [p.type, p.value]));
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) % 24 };
+}
+
+// src/bulletin/collect.ts
+var BULLETIN_FEEDS = [
+  { name: "ScienceDaily", url: "https://www.sciencedaily.com/rss/mind_brain.xml" },
+  { name: "Neuroscience News", url: "https://neurosciencenews.com/feed/" },
+  { name: "The Transmitter", url: "https://www.thetransmitter.org/feed/" },
+  { name: "Medical Xpress", url: "https://medicalxpress.com/rss-feed/neuroscience-news/" }
+];
+var PUBMED_TERM = '(brain[tiab] OR neuroscien*[tiab] OR neuron*[tiab] OR cognit*[tiab] OR psycholog*[tiab] OR psychiatr*[tiab] OR dementia[tiab] OR alzheimer*[tiab] OR "mental health"[tiab] OR memory[tiab]) AND hasabstract AND english[la]';
+var BIORXIV_CATS = /* @__PURE__ */ new Set(["neuroscience", "animal behavior and cognition"]);
+var iso2 = (d) => d.toISOString().slice(0, 10);
+var daysAgo = (n, from = /* @__PURE__ */ new Date()) => iso2(new Date(from.getTime() - n * 864e5));
+async function json(f, url) {
+  const r = await f(url, { headers: { Accept: "application/json", "User-Agent": "the-atelier-bulletin" } });
+  if (!r.ok) throw new Error(`${r.status}`);
+  return r.json();
+}
+async function text(f, url) {
+  const r = await f(url, { headers: { "User-Agent": "Mozilla/5.0 (the-atelier-bulletin)" } });
+  if (!r.ok) throw new Error(`${r.status}`);
+  return r.text();
+}
+async function fromPubmed(f, now = /* @__PURE__ */ new Date()) {
+  const q = new URLSearchParams({ db: "pubmed", retmode: "json", retmax: "150", term: PUBMED_TERM, sort: "relevance", datetype: "edat", mindate: daysAgo(2, now).replace(/-/g, "/"), maxdate: iso2(now).replace(/-/g, "/"), tool: "the-atelier" });
+  const s = await json(f, `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?${q}`);
+  const ids = s?.esearchresult?.idlist ?? [];
+  if (!ids.length) return [];
+  const xml = await text(f, `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&retmode=xml&tool=the-atelier&id=${ids.join(",")}`);
+  return pubmedCandidates(xml);
+}
+function pubmedCandidates(xml) {
+  const types = /* @__PURE__ */ new Map();
+  for (const m of xml.matchAll(/<PubmedArticle>([\s\S]*?)<\/PubmedArticle>/g)) {
+    const pmid = m[1].match(/<PMID[^>]*>(\d+)<\/PMID>/)?.[1];
+    if (pmid) types.set(pmid, [...m[1].matchAll(/<PublicationType[^>]*>([\s\S]*?)<\/PublicationType>/g)].map((x) => x[1].trim()));
+  }
+  return parsePubmedXml(xml).filter((p) => p.abstract && !/^(erratum|correction|retraction|comment)/i.test(p.title)).map((p) => ({
+    id: p.doi ? `doi:${p.doi.toLowerCase()}` : `pmid:${p.pmid}`,
+    kind: "paper",
+    title: p.title.replace(/\.$/, ""),
+    text: p.abstract ?? "",
+    source: p.journal ?? "PubMed",
+    url: p.doi ? `https://doi.org/${p.doi}` : p.url ?? "",
+    doi: p.doi,
+    pmid: p.pmid,
+    authors: p.authors,
+    year: p.year,
+    pubTypes: types.get(p.pmid ?? "") ?? []
+  }));
+}
+async function fromBiorxiv(f, now = /* @__PURE__ */ new Date()) {
+  const out = [];
+  for (let cursor = 0, page = 0; page < 8; page++) {
+    const d = await json(f, `https://api.biorxiv.org/details/biorxiv/${daysAgo(2, now)}/${iso2(now)}/${cursor}`);
+    const list = d?.collection ?? [];
+    for (const p of list) {
+      if (!BIORXIV_CATS.has(String(p.category ?? "").toLowerCase())) continue;
+      out.push({ id: `doi:${String(p.doi).toLowerCase()}`, kind: "preprint", title: String(p.title).trim(), text: String(p.abstract ?? ""), source: "bioRxiv", url: `https://doi.org/${p.doi}`, doi: p.doi, authors: String(p.authors ?? "").split(";").map((a) => a.trim()).filter(Boolean), publishedAt: p.date ?? null, year: p.date ? Number(String(p.date).slice(0, 4)) : null });
+    }
+    const total = Number(d?.messages?.[0]?.total ?? 0);
+    cursor += list.length;
+    if (!list.length || cursor >= total) break;
+  }
+  return out;
+}
+async function fromPsyarxiv(f, now = /* @__PURE__ */ new Date()) {
+  const d = await json(f, `https://api.osf.io/v2/preprints/?filter%5Bprovider%5D=psyarxiv&filter%5Bdate_published%5D%5Bgte%5D=${daysAgo(2, now)}&page%5Bsize%5D=60`);
+  return (d?.data ?? []).map((p) => {
+    const a = p.attributes ?? {};
+    const doi = a.doi ?? null;
+    return { id: doi ? `doi:${String(doi).toLowerCase()}` : `osf:${p.id}`, kind: "preprint", title: String(a.title ?? "").trim(), text: String(a.description ?? ""), source: "PsyArXiv", url: p.links?.html ?? (doi ? `https://doi.org/${doi}` : `https://osf.io/${p.id}`), doi, publishedAt: a.date_published ?? null, year: a.date_published ? Number(String(a.date_published).slice(0, 4)) : null, hint: "psych" };
+  }).filter((c) => c.title);
+}
+async function fromFeeds(f, now = /* @__PURE__ */ new Date()) {
+  const list = [];
+  const status2 = [];
+  for (const feed2 of BULLETIN_FEEDS) {
+    try {
+      const items2 = parseFeed(await text(f, feed2.url)).filter((i) => !i.publishedAt || now.getTime() - Date.parse(i.publishedAt) < 3 * 864e5).slice(0, 25);
+      for (const i of items2) list.push({ id: `url:${i.url}`, kind: "news", title: i.title, text: i.summary ?? "", source: feed2.name, url: i.url, publishedAt: i.publishedAt ?? null, hint: feed2.hint ?? null });
+      status2.push({ name: feed2.name, count: items2.length });
+    } catch (e) {
+      status2.push({ name: feed2.name, count: 0, error: e.message });
+    }
+  }
+  return { list, status: status2 };
+}
+var PROMPT = `You edit a short morning briefing on neuroscience and psychology for a strong 18-year-old about to study Psychological and Behavioural Sciences.
+From the candidate stories (JSON), pick the 10 that matter most: real advances, large or rigorous studies, important clinical or policy news, and surprising findings. Skip duplicates of the same finding (keep the best source), minor technical papers, and hype.
+For each pick write:
+- "headline": plain English, max 90 characters, no hype, no clickbait. Do not use any number that is not in that story's text.
+- "summary": two sentences in plain English saying what was done and found. Only use facts and numbers from that story's text.
+- "why": one sentence on why it matters or what it changes.
+- "category": one of "neuro", "psych", "clinical", "policy".
+Order picks from most to least important. Also write "question": one short critical-thinking question about one of the picks (good for interview practice: causation, sampling, mechanism, ethics), with "id" of that story.
+Return only JSON: {"picks":[{"id":"","headline":"","summary":"","why":"","category":""}],"question":{"text":"","id":""}}`;
+var MODELS = ["gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
+async function rankWithGemini(f, key2, candidates, model = "") {
+  const payload = candidates.map((c) => ({ id: c.id, kind: c.kind, source: c.source, title: c.title, text: c.text.slice(0, 900) }));
+  const body = JSON.stringify({
+    systemInstruction: { parts: [{ text: PROMPT }] },
+    contents: [{ role: "user", parts: [{ text: JSON.stringify(payload) }] }],
+    generationConfig: { temperature: 0.3, responseMimeType: "application/json", maxOutputTokens: 8192 }
+  });
+  for (const m of [model, ...MODELS].filter((x, i, a) => x && a.indexOf(x) === i)) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const r = await f(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": key2 }, body });
+      if (r.status === 404 || r.status === 400) break;
+      if (r.status === 429) {
+        console.log("bulletin: Gemini free limit reached; using the plain version");
+        return null;
+      }
+      if (r.status >= 500) {
+        await new Promise((res) => setTimeout(res, 3e3));
+        continue;
+      }
+      if (!r.ok) {
+        console.log(`bulletin: Gemini answered ${r.status}`);
+        return null;
+      }
+      const j = await r.json();
+      const txt = j?.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+      const parsed = parseAi(txt);
+      if (parsed) {
+        console.log(`bulletin: ${parsed.picks.length} picks from ${m}`);
+        return parsed;
+      }
+      console.log("bulletin: could not read Gemini’s answer");
+      return null;
+    }
+  }
+  console.log("bulletin: Gemini busy; using the plain version");
+  return null;
+}
+function parseAi(txt) {
+  try {
+    const j = JSON.parse(txt.replace(/^```(?:json)?\s*|\s*```$/g, ""));
+    if (!Array.isArray(j?.picks)) return null;
+    return { picks: j.picks.filter((p) => p && typeof p.id === "string"), question: j.question && typeof j.question.text === "string" ? j.question : void 0 };
+  } catch {
+    return null;
+  }
+}
+async function buildBulletin(o) {
+  const f = o.f ?? fetch;
+  const now = o.now ?? /* @__PURE__ */ new Date();
+  const sources2 = [];
+  const all2 = [];
+  const grab = async (name, fn) => {
+    try {
+      const l = await fn();
+      all2.push(...l);
+      sources2.push({ name, count: l.length });
+    } catch (e) {
+      sources2.push({ name, count: 0, error: e.message });
+    }
+  };
+  await grab("PubMed", () => fromPubmed(f, now));
+  await grab("bioRxiv", () => fromBiorxiv(f, now));
+  await grab("PsyArXiv", () => fromPsyarxiv(f, now));
+  const feeds = await fromFeeds(f, now);
+  all2.push(...feeds.list);
+  sources2.push(...feeds.status);
+  const pool3 = dedupe(all2).filter((c) => c.title && c.url).map((c) => ({ c, s: score(c) })).sort((a, b) => b.s - a.s).slice(0, 70).map((x) => x.c);
+  const ai = o.geminiKey && pool3.length ? await rankWithGemini(f, o.geminiKey, pool3, o.geminiModel ?? "").catch((e) => {
+    console.log(`bulletin: Gemini failed (${e.message})`);
+    return null;
+  }) : null;
+  return assemble(o.date, pool3, ai, o.prevWeek ?? [], 10, now.toISOString(), sources2);
 }
 
 // scripts/recommend.ts
@@ -745,6 +1160,25 @@ if (!wlStops || Date.now() - Date.parse(wlStops.fetchedAt) > 7 * 864e5) {
     console.log(`wiener linien stops failed: ${e.message}${wlStops ? " (keeping the previous list)" : ""}`);
   }
 }
-var pool2 = { format: "atelier-recommendations", version: 6, markets, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), sources: status, items, horoscopes: horo, barca, wlStops };
+var bulletin = null;
+try {
+  bulletin = JSON.parse(await readFile(OUT, "utf8")).bulletin ?? null;
+} catch {
+}
+{
+  const vn = viennaNow();
+  const mode = process.env.BULLETIN ?? "";
+  const due = mode === "force" || mode !== "off" && (!bulletin || bulletin.date !== vn.date) && vn.hour >= 4;
+  if (due) {
+    try {
+      const fresh2 = await buildBulletin({ date: vn.date, geminiKey: process.env.GEMINI_API_KEY || null, geminiModel: process.env.GEMINI_MODEL || null, prevWeek: bulletin?.week ?? [] });
+      console.log(`bulletin: ${fresh2.items.length} stories for ${fresh2.date}${fresh2.ai ? " (AI summaries)" : process.env.GEMINI_API_KEY ? " (plain: AI unavailable)" : " (plain: no GEMINI_API_KEY secret)"}; sources ${fresh2.sources.map((x) => `${x.name} ${x.count}${x.error ? " !" : ""}`).join(", ")}`);
+      if (fresh2.items.length) bulletin = fresh2;
+    } catch (e) {
+      console.log(`bulletin: failed (${e.message}); keeping the previous edition`);
+    }
+  } else console.log(`bulletin: ${bulletin ? `keeping ${bulletin.date}` : "not yet (from 04:00 Vienna time)"}`);
+}
+var pool2 = { format: "atelier-recommendations", version: 7, markets, generatedAt: (/* @__PURE__ */ new Date()).toISOString(), sources: status, items, horoscopes: horo, barca, wlStops, bulletin };
 await writeFile(OUT, JSON.stringify(pool2, null, 0) + "\n");
 console.log(`Wrote ${items.length} items (${fresh.length} fetched this run) to ${OUT}`);
